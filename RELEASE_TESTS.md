@@ -66,6 +66,11 @@ Expected:
 
 ## 2b) PolicyLock determinism (URL pinning): stable URL + pinned time => identical ZIP
 
+
+Note:
+- This test uses a live external URL. Skip in air-gapped environments.
+- For CI, substitute a locally-served stable file (e.g., a tiny local HTTP server hosting a fixed PDF).
+
 This proves the “URL snapshots can be byte-identical when content is identical” behavior.
 
 Use a **stable PDF** URL:
@@ -177,6 +182,12 @@ Cleanup helper:
 Remove-Item .\tmp_zip_tamper.go
 ```
 
+Optional cleanup (keeps workspace predictable):
+
+```powershell
+Remove-Item .\out\snap1_tampered.zip -ErrorAction SilentlyContinue
+```
+
 ---
 
 ## 4) Consent unsigned happy path: VALID + warning (exit 0)
@@ -245,6 +256,13 @@ Remove-Item env:POLICYGUARDIAN_STORE -ErrorAction SilentlyContinue
 ---
 
 ## 7) Signed consent path: VALID (exit 0) and tamper fails (multiple fields)
+
+
+Defensive reset (in case a prior run aborted mid-test):
+
+```powershell
+Remove-Item env:POLICYGUARDIAN_STORE -ErrorAction SilentlyContinue
+```
 
 ### 7a) Generate a one-off keypair
 
@@ -346,7 +364,7 @@ Remove-Item .\tmp_keygen.go
 
 ## Optional Appendix A) Cross-platform determinism (Windows vs Linux/macOS)
 
-Only do this if you plan to distribute non-Windows builds and want to **claim** cross-platform identical artifacts.
+Do this if you plan to distribute non-Windows builds **or** you want to claim cross-platform determinism. If you are Windows-first for v1.0, you may treat this as optional, but be explicit about that scope in README/marketing.
 
 Idea:
 1) On Windows: produce `snap_win.zip` from `fixtures/policylock/policy1.txt`
