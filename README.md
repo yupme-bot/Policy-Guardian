@@ -298,3 +298,10 @@ Policy Guardian is part of the Guardian tool family:
 No dashboards. No SaaS. Just evidence you can verify.
 
 Note: the release ZIP includes an out/ folder so you can run demos/tests immediately.
+
+
+## License
+
+Policy Guardian is licensed under the Apache License 2.0.
+Copyright © 2026 Ben Slater
+
