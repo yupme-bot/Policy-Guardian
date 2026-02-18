@@ -7,9 +7,9 @@ Policy Guardian is a **Windows-first**, **deterministic** CLI monorepo that ship
 
 This repo supports two build modes (same shared code, no drift):
 
-- **Mode A (default / preferred):** one binary with subcommands  
+- **Mode A (default / preferred):** one binary with subcommands
   `policyguardian.exe policylock ...` and `policyguardian.exe consent ...`
-- **Mode B (optional wrappers):** two small wrapper binaries built from the same repo  
+- **Mode B (optional wrappers):** two small wrapper binaries built from the same repo
   `policylock.exe` and `consentguardian.exe` (they call the same internal packages)
 
 ## Design goals

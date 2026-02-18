@@ -1,680 +1,261 @@
-POLICY GUARDIAN v0.1 — FINAL FROZEN SPEC
+# POLICY GUARDIAN v1.0 — FROZEN SPEC (Schema v0.1)
 
-Status: Frozen
+Status: Frozen  
+Tool release: v1.0.0  
+Schemas: `policylock.policy_snapshot.v0.1`, `consentguardian.consent_event.v0.1`
 
+Components:
+1. PolicyLock — policy snapshot tool
+2. Consent Guardian — consent recording tool
+3. Shared canonical JSON + rules
 
+Design goals:
+- Deterministic (same inputs → same bytes)
+- Privacy-minimized
+- Offline-verifiable
+- CLI-first
+- Guardian-family compatible
+- No dashboards / no inference / no feature creep
 
-Components
+## Trust chain
 
-----------
-
-1\. PolicyLock — policy snapshot tool
-
-2\. Consent Guardian — consent recording tool
-
-3\. Shared canonical JSON rules
-
-
-
-Design Goals
-
-------------
-
-• Deterministic outputs  
-
-• Privacy-minimized evidence  
-
-• Offline verifiable artifacts  
-
-• CLI-first workflow  
-
-• Guardian Kernel compatible  
-
-• No dashboards, no inference, no feature creep  
-
-
-
-
-
-Trust Chain
-
------------
-
-PolicyLock snapshot
-
-&nbsp;   ↓
-
-Consent Guardian record
-
-&nbsp;   ↓
-
-Guardian Kernel sealing (optional)
-
-&nbsp;   ↓
-
+PolicyLock snapshot  
+↓  
+Consent Guardian record  
+↓  
+(Optional) external sealing / evidence packaging  
+↓  
 Verifier / Proof Lab
 
+This proves:
+- What policy bytes existed
+- Which policy snapshot a user agreed to
+- When that agreement record was created
 
+## 1. Shared rules (both tools)
 
-This chain proves:
+### 1.1 Canonical JSON standard
 
+Policy Guardian canonical JSON = RFC 8785 (JCS).
 
+All signing payloads use:
+- UTF-8
+- Unicode NFC normalization
+- Lexicographic key ordering
+- Optional fields omitted (never `null`)
 
-• what policy existed  
-
-• which policy a user agreed to  
-
-• when the agreement was recorded  
-
-
-
-
-
-======================================================================
-
-1\. SHARED RULES (Both Tools)
-
-======================================================================
-
-
-
-1.1 Canonical JSON
-
-------------------
-
-All signing payloads use RFC 8785 (JCS):
-
-
-
-• UTF-8 encoding  
-
-• Unicode NFC normalization  
-
-• Lexicographic key ordering  
-
-• Integers only (no floats)  
-
-• Optional fields omitted (never null)
-
-
+**Numbers:** signing payloads MUST NOT use floats.
 
 This guarantees cross-language determinism.
 
-
-
-
-
-1.2 Timestamp Format
-
---------------------
+### 1.2 Timestamp format
 
 All timestamps MUST be:
 
+`YYYY-MM-DDTHH:MM:SSZ`
 
+- UTC only
+- No sub-seconds
+- Leap seconds clamped to `:59`
 
-YYYY-MM-DDTHH:MM:SSZ
+### 1.3 Hash and signature format
 
+Hashes use explicit algorithm identifiers:
 
+```json
+"hashes": { "sha2-256": "hex..." }
+```
 
-• UTC only  
+Signatures specify:
 
-• No sub-seconds  
+```json
+"algorithm": "ed25519"
+```
 
-• Leap seconds clamped to :59  
+### 1.4 Snapshot resolution model
 
+Consent Guardian resolves a PolicyLock snapshot by:
+1. Local content-addressable store keyed by `snapshot_id`
+2. Optional override path (CLI)
 
-
-
-
-1.3 Hash Format
-
----------------
-
-All hashes are explicitly labeled:
-
-
-
-&nbsp;   "hashes": { "sha2-256": "hex..." }
-
-
-
-All signatures specify:
-
-
-
-&nbsp;   "algorithm": "ed25519"
-
-
-
-
-
-1.4 Snapshot Resolution Model
-
------------------------------
-
-Consent Guardian resolves snapshots using:
-
-
-
-1\. Local content-addressable store keyed by snapshot\_id  
-
-2\. CLI override path  
-
-
-
-If snapshot not found → verification result PARTIAL.
-
-
+If the snapshot is not found → `PARTIAL` when verification is requested with resolution.
 
 Snapshot packs are immutable artifacts.
 
+### 1.5 Optional fields rule
 
+Absent fields are omitted, never `null`.
 
+## 2. PolicyLock (schema v0.1)
 
-
-1.5 Optional Fields Rule
-
-------------------------
-
-Optional fields are omitted when absent.  
-
-Never use null.
-
-
-
-
-
-======================================================================
-
-2\. POLICYLOCK v0.1
-
-======================================================================
-
-
-
-2.1 Purpose
-
------------
+### 2.1 Purpose
 
 Freeze policy bytes into a deterministic snapshot pack.
 
-
-
 Proves:
+- Exact policy bytes
+- Provenance metadata
+- Tamper-evident hashing and (optional) signature support
 
-
-
-• exact policy text  
-
-• provenance metadata  
-
-• optional existence-at-time evidence  
-
-
-
-
-
-2.2 Snapshot Pack Contents
-
---------------------------
+### 2.2 Snapshot pack contents
 
 Required:
-
-
-
-• policy\_snapshot.json  
-
-• policy\_body.bin  
-
-
+- `policy_snapshot.json`
+- `policy_body.bin`
 
 Optional:
+- `signature_envelope.json` (Ed25519 envelope) and referenced signature files (if used)
 
+### 2.3 Deterministic ZIP rules
 
+- Compression: STORE
+- Path separator: `/`
+- File order: lexicographic byte order
+- Fixed entry timestamps
+- No OS metadata
 
-• signature.ed25519.json  
+ZIP output must be reproducible byte-for-byte for the same inputs.
 
-• anchor/\*  
+### 2.4 RAW mode only
 
+`policy_body.bin` is the **exact bytes** captured.
 
+No newline normalization. No charset decoding. No HTML/PDF parsing.
 
+### 2.5 URL metadata stored
 
+For URL snapshots, metadata MAY include (as implemented):
+- requested_url, final_url
+- redirect_count (tri-state)
+- http_status, content_type
+- retrieved_at_utc, resolved_ip
+- cross_domain_redirect (tri-state)
+- minimal request headers (nested under `policy.fetch.request_headers`)
 
-2.3 Deterministic ZIP Rules
+### 2.6 Signing payload
 
----------------------------
-
-ZIP archives MUST be reproducible byte-for-byte:
-
-
-
-• Compression: STORE  
-
-• Path separator: /  
-
-• File order: lexicographic byte order  
-
-• Fixed entry timestamps  
-
-• No OS metadata  
-
-
-
-
-
-2.4 RAW Mode Only
-
------------------
-
-policy\_body.bin contains exact bytes.
-
-
-
-No newline normalization.  
-
-No charset decoding.  
-
-No HTML/PDF parsing.  
-
-
-
-
-
-2.5 URL Metadata Stored
-
------------------------
-
-If snapshot from URL, metadata may include:
-
-
-
-• requested\_url  
-
-• final\_url  
-
-• redirect\_count  
-
-• http\_status  
-
-• content\_type  
-
-• etag  
-
-• last\_modified  
-
-• retrieved\_at\_utc  
-
-• resolved\_ip  
-
-• tls\_version  
-
-• tls\_leaf\_cert\_sha256  
-
-• tls\_subject\_cn\_san  
-
-• cross\_domain\_redirect  
-
-
-
-Minimal request headers may be stored.
-
-
-
-
-
-2.6 Signing Payload
-
--------------------
-
-Signing payload includes:
-
-
-
-• created\_at\_utc  
-
-• policy.input  
-
-• policy.fetch  
-
-• policy.bytes.hashes  
-
-
+Includes (conceptually):
+- `created_at_utc`
+- `policy.input`
+- `policy.fetch`
+- `policy.bytes.hashes`
+- minimal request headers
 
 Excludes:
-
-
-
-• signing block  
-
-• anchors  
-
-• snapshot\_id  
-
-
+- signing block
+- snapshot_id
 
 Compute:
+- `sign_payload_bytes = RFC8785(sign_payload)`
+- `snapshot_id = SHA256(sign_payload_bytes)`
 
+Signature is optional but recommended for audit use.
 
+### 2.7 Exit codes
 
-sign\_payload\_bytes = RFC8785(sign\_payload)  
+- 0 — VALID
+- 1 — PARTIAL
+- 2 — INVALID
+- 3 — UNSUPPORTED
+- 4 — INPUT ERROR
+- 5 — NETWORK ERROR
 
-snapshot\_id = SHA256(sign\_payload\_bytes)
+## 3. Consent Guardian (schema v0.1)
 
-
-
-Signature optional but recommended.
-
-
-
-
-
-2.7 Anchoring
-
--------------
-
-Optional anchor types:
-
-
-
-• RFC 3161 TSA  
-
-• Transparency log  
-
-• OpenTimestamps  
-
-
-
-Earliest verified anchor is authoritative.
-
-
-
-
-
-2.8 Exit Codes
-
---------------
-
-0 — VALID / success  
-
-1 — PARTIAL  
-
-2 — INVALID / integrity failure  
-
-3 — UNSUPPORTED  
-
-4 — INPUT ERROR  
-
-5 — NETWORK ERROR  
-
-
-
-
-
-======================================================================
-
-3\. CONSENT GUARDIAN v0.1
-
-======================================================================
-
-
-
-3.1 Purpose
-
------------
+### 3.1 Purpose
 
 Record deterministic consent events referencing a PolicyLock snapshot.
 
-
-
 Proves:
+- A consent record was created
+- It binds a subject hash to specific policy bytes (via snapshot hashes)
+- It was not tampered with (and optionally signed)
 
+### 3.2 `consent_event.json` structure (high-level)
 
-
-• user agreed  
-
-• to a specific policy text  
-
-• at a specific time  
-
-
-
-
-
-3.2 consent\_event.json Schema (Core Fields)
-
--------------------------------------------
-
+```json
 {
-
-&nbsp; "schema": "consentguardian.consent\_event.v0.1",
-
-&nbsp; "spec\_url": "...",
-
-&nbsp; "created\_at\_utc": "...",
-
-
-
-&nbsp; "policy": {
-
-&nbsp;   "policy\_sha256": "...",
-
-&nbsp;   "snapshot\_id": "...",
-
-&nbsp;   "snapshot\_pack\_sha256": "..."
-
-&nbsp; },
-
-
-
-&nbsp; "subject": {
-
-&nbsp;   "subject\_id\_hash": "...",
-
-&nbsp;   "hash\_algorithm": "sha2-256"
-
-&nbsp; },
-
-
-
-&nbsp; "context": { ... optional ... },
-
-&nbsp; "evidence": { ... optional ... },
-
-
-
-&nbsp; "signing": {
-
-&nbsp;   "mode": "none|ed25519",
-
-&nbsp;   "algorithm": "ed25519",
-
-&nbsp;   "public\_key": "...",
-
-&nbsp;   "signature\_file": "..."
-
-&nbsp; }
-
+  "schema": "consentguardian.consent_event.v0.1",
+  "spec_url": "...",
+  "tool_version": "...",
+  "created_at_utc": "...",
+  "policy": {
+    "policy_sha256": "hex...",
+    "snapshot_id": "hex...",
+    "snapshot_pack_sha256": "hex..."
+  },
+  "subject": {
+    "subject_id_hash": "hex...",
+    "hash_algorithm": "sha2-256"
+  },
+  "signing": {
+    "mode": "none|ed25519",
+    "algorithm": "ed25519",
+    "public_key": "...",
+    "signature_file": "..."
+  }
 }
+```
 
+Unsigned records are integrity-only (tamper-evident but not attributable to a signer).
 
+### 3.3 `subject_id_hash` definition
 
-Unsigned records are integrity-only.
-
-
-
-
-
-3.3 subject\_id\_hash Definition
-
-------------------------------
-
-normalized\_identifier =
-
-NFC(lowercase(identifier\_UTF8))
-
-
-
-subject\_id\_hash =
-
-SHA256(environment\_pepper || tenant\_salt || normalized\_identifier)
-
-
+```
+normalized_identifier = NFC(lowercase(identifier_utf8))
+subject_id_hash = SHA256(environment_pepper || tenant_salt || normalized_identifier)
+```
 
 Notes:
+- Pepper is secret material (do not log it)
+- Tenant salt is per-tenant
+- Consent records are pseudonymous personal data under many regimes
 
-
-
-• Pepper stored in secrets manager  
-
-• Tenant salt stored per tenant  
-
-• Records are pseudonymous personal data  
-
-
-
-
-
-3.4 Signing Payload
-
--------------------
+### 3.4 Signing payload
 
 Includes:
-
-
-
-• created\_at\_utc  
-
-• policy section  
-
-• subject section  
-
-• context section  
-
-• evidence section  
-
-
+- `created_at_utc`
+- `policy`
+- `subject`
+- optional context/evidence fields (if present)
 
 Excludes:
-
-
-
-• signing block  
-
-
+- signing block
 
 Compute:
-
-
-
-consent\_event\_id = SHA256(RFC8785(sign\_payload))
-
-
+- `consent_event_id = SHA256(RFC8785(sign_payload))`
 
 Signing recommended for audit use.
 
+### 3.5 Replay protection
 
+Systems consuming consent records should deduplicate by `consent_event_id`.
 
+### 3.6 Known v1.0 gaps (intentionally out of scope)
 
+- Consent revocation
+- Policy validity windows
+- Batch consent records
+- Identity verification
+- UI capture proof
 
-3.5 Replay Protection
-
----------------------
-
-Guardian Kernel SHOULD deduplicate consent\_event\_id.
-
-
-
-
-
-3.6 Known v0.1 Out-of-Scope
-
-----------------------------
-
-• Consent revocation  
-
-• Policy validity windows  
-
-• Batch consent records  
-
-• Identity verification  
-
-• UI capture proof  
-
-
-
-
-
-======================================================================
-
-4\. SECURITY NOTES
-
-======================================================================
-
-
+## 4. Security notes
 
 Policy Guardian proves:
-
-
-
-• policy version existed  
-
-• consent was recorded  
-
-
+- Policy snapshot bytes existed as captured
+- Consent record integrity (and optional signer attribution)
 
 It does NOT prove:
+- Real-world user identity
+- UI displayed correctly
+- Policy is legally valid
 
+## 5. Interoperability requirements (release)
 
+Release should ship:
+- JSON Schemas
+- Golden fixtures (snapshot + consent pair)
+- Reference verifier
+- Example snapshot + consent pair
 
-• user identity  
-
-• UI display correctness  
-
-• legal validity of policy  
-
-
-
-Supply-chain trust required:
-
-
-
-• Open source builds  
-
-• Reproducible binaries  
-
-• Signed releases  
-
-
-
-
-
-======================================================================
-
-5\. INTEROPERABILITY REQUIREMENTS
-
-======================================================================
-
-
-
-A compliant release MUST ship:
-
-
-
-• JSON schemas  
-
-• Golden test vectors  
-
-• Reference verifier  
-
-• Example snapshot + consent pair  
-
-
-
-Verifiers MUST ignore unknown fields for forward compatibility.
-
-
-
-END OF FROZEN SPEC
-
-
-
+Verifiers should ignore unknown fields for forward compatibility.

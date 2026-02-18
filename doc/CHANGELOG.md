@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.0.1 — Docs Polish
+
+Changes:
+- Clarified spec as v1.0 release while keeping schema v0.1
+- Removed emoji numbering and tightened compliance wording
+- Updated SECURITY.md with explicit non-identity statement and signature meaning
+- Cleaned README duplication and minor wording inconsistencies
+
+
 ## v1.0.0 — Policy Guardian v1.0 Release (Freeze + Build Fixes)
 
 This release is the **v1.0.0 tagged** baseline for Policy Guardian (PolicyLock + Consent Guardian).
@@ -16,4 +25,3 @@ This release is the **v1.0.0 tagged** baseline for Policy Guardian (PolicyLock +
 - Windows-first CLI binaries in `dist/`
 - Deterministic fixtures + JSON schemas in `fixtures/` + `schemas/`
 - Reference verifier in `tools/ref_verify/`
-
