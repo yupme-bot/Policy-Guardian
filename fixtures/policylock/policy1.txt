@@ -1,0 +1,2 @@
+Policy v1
+We collect minimal telemetry.

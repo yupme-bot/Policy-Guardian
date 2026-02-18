@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "policyguardian.signature_envelope.v0.1.schema.json",
+  "type": "object",
+  "required": [
+    "schema",
+    "algorithm",
+    "public_key",
+    "signature",
+    "payload_hashes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "policyguardian.signature_envelope.v0.1"
+    },
+    "algorithm": {
+      "const": "ed25519"
+    },
+    "public_key": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "signature": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{128}$"
+    },
+    "payload_hashes": {
+      "type": "object"
+    }
+  }
+}
