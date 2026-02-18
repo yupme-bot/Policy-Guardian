@@ -26,11 +26,12 @@ import (
 )
 
 const (
-	SchemaPolicySnapshot = "policylock.policy_snapshot.v0.1"
+	SchemaPolicySnapshot  = "policylock.policy_snapshot.v0.1"
 	SpecURLPolicyGuardian = "SPEC_POLICY_GUARDIAN_V0_1_FROZEN.md"
 )
 
 type SnapshotOptions struct {
+	ToolVersion    string
 	CreatedAtUTC   string
 	RetrievedAtUTC string
 	UserAgent      string
@@ -123,14 +124,15 @@ func SnapshotFromURL(rawurl string, opts SnapshotOptions) ([]byte, *PolicySnapsh
 		}
 	}
 
+	rc := redirCount
 	fetch := &PolicyFetch{
-		RequestedURL: rawurl,
-		FinalURL: finalURL,
-		RedirectCount: redirCount,
-		HTTPStatus: resp.StatusCode,
-		ContentType: resp.Header.Get("Content-Type"),
-		ETag: resp.Header.Get("ETag"),
-		LastModified: resp.Header.Get("Last-Modified"),
+		RequestedURL:   rawurl,
+		FinalURL:       finalURL,
+		RedirectCount:  &rc,
+		HTTPStatus:     resp.StatusCode,
+		ContentType:    resp.Header.Get("Content-Type"),
+		ETag:           resp.Header.Get("ETag"),
+		LastModified:   resp.Header.Get("Last-Modified"),
 		RetrievedAtUTC: opts.RetrievedAtUTC,
 	}
 	// Note: retrieved_at_utc is finalized in buildSnapshot.
@@ -140,9 +142,8 @@ func SnapshotFromURL(rawurl string, opts SnapshotOptions) ([]byte, *PolicySnapsh
 	if ip, _ := resolveIP(firstHost); ip != "" {
 		fetch.ResolvedIP = ip
 	}
-	if strings.ToLower(firstHost) != strings.ToLower(parseHost(finalURL)) {
-		fetch.CrossDomainRedirect = true
-	}
+	b := strings.ToLower(firstHost) != strings.ToLower(parseHost(finalURL))
+	fetch.CrossDomainRedirect = &b
 	if tlsInfo != nil {
 		fetch.TLSVersion = tlsVersionString(tlsInfo.Version)
 		if len(tlsInfo.PeerCertificates) > 0 {
@@ -155,7 +156,34 @@ func SnapshotFromURL(rawurl string, opts SnapshotOptions) ([]byte, *PolicySnapsh
 	return buildSnapshot(body, in, fetch, opts)
 }
 
+func validateModeInvariants(input PolicyInput, fetch *PolicyFetch) error {
+	switch input.Mode {
+	case "file":
+		if input.Path == "" || input.URL != "" || fetch != nil {
+			return errors.New("invalid mode invariants")
+		}
+	case "url":
+		if input.URL == "" || input.Path != "" || fetch == nil {
+			return errors.New("invalid mode invariants")
+		}
+	case "stdin":
+		if input.Path != "" || input.URL != "" || fetch != nil {
+			return errors.New("invalid mode invariants")
+		}
+	default:
+		return errors.New("invalid mode: must be file|url|stdin")
+	}
+	return nil
+}
+
 func buildSnapshot(policyBytes []byte, input PolicyInput, fetch *PolicyFetch, opts SnapshotOptions) ([]byte, *PolicySnapshot, error) {
+	if strings.TrimSpace(opts.ToolVersion) == "" {
+		return nil, nil, fmt.Errorf("tool_version required")
+	}
+	if err := validateModeInvariants(input, fetch); err != nil {
+		return nil, nil, err
+	}
+
 	created := opts.CreatedAtUTC
 	if created == "" {
 		created = timefmt.Format(timefmt.NowUTC())
@@ -170,8 +198,9 @@ func buildSnapshot(policyBytes []byte, input PolicyInput, fetch *PolicyFetch, op
 	}
 	pHash := hashing.SHA256Hex(policyBytes)
 	snap := &PolicySnapshot{
-		Schema: SchemaPolicySnapshot,
-		SpecURL: SpecURLPolicyGuardian,
+		Schema:       SchemaPolicySnapshot,
+		SpecURL:      SpecURLPolicyGuardian,
+		ToolVersion:  opts.ToolVersion,
 		CreatedAtUTC: created,
 		Policy: PolicySection{
 			Input: input,
@@ -184,7 +213,7 @@ func buildSnapshot(policyBytes []byte, input PolicyInput, fetch *PolicyFetch, op
 		SnapshotID: "",
 	}
 	if input.Mode == "url" {
-		snap.RequestHeaders = map[string]string{"user-agent": opts.ua()}
+		fetch.RequestHeaders = map[string]string{"user-agent": opts.ua()}
 	}
 
 	payload, err := BuildSignPayload(*snap)
@@ -202,8 +231,8 @@ func buildSnapshot(policyBytes []byte, input PolicyInput, fetch *PolicyFetch, op
 		return nil, nil, err
 	}
 	entries := []zipdet.Entry{
-		{Name:"policy_body.bin", Data: policyBytes},
-		{Name:"policy_snapshot.json", Data: snapJSON},
+		{Name: "policy_body.bin", Data: policyBytes},
+		{Name: "policy_snapshot.json", Data: snapJSON},
 	}
 	zipBytes, err := zipdet.WriteDeterministicZip(entries)
 	if err != nil {
@@ -235,11 +264,19 @@ func BuildSignPayload(s PolicySnapshot) (map[string]any, error) {
 	}
 	if s.Policy.Fetch != nil {
 		f := map[string]any{}
-		addStr := func(k, v string){ if v!="" { f[k]=v } }
+		addStr := func(k, v string) {
+			if v != "" {
+				f[k] = v
+			}
+		}
 		addStr("requested_url", s.Policy.Fetch.RequestedURL)
 		addStr("final_url", s.Policy.Fetch.FinalURL)
-		if s.Policy.Fetch.RedirectCount!=0 { f["redirect_count"]=s.Policy.Fetch.RedirectCount }
-		if s.Policy.Fetch.HTTPStatus!=0 { f["http_status"]=s.Policy.Fetch.HTTPStatus }
+		if s.Policy.Fetch.RedirectCount != nil {
+			f["redirect_count"] = *s.Policy.Fetch.RedirectCount
+		}
+		if s.Policy.Fetch.HTTPStatus != 0 {
+			f["http_status"] = s.Policy.Fetch.HTTPStatus
+		}
 		addStr("content_type", s.Policy.Fetch.ContentType)
 		addStr("etag", s.Policy.Fetch.ETag)
 		addStr("last_modified", s.Policy.Fetch.LastModified)
@@ -248,22 +285,30 @@ func BuildSignPayload(s PolicySnapshot) (map[string]any, error) {
 		addStr("tls_version", s.Policy.Fetch.TLSVersion)
 		addStr("tls_leaf_cert_sha256", s.Policy.Fetch.TLSLeafCertSHA256)
 		addStr("tls_subject_cn_san", s.Policy.Fetch.TLSSubjectCNSAN)
-		if s.Policy.Fetch.CrossDomainRedirect { f["cross_domain_redirect"]=true }
-		p["policy"].(map[string]any)["fetch"]=f
-	}
-	if len(s.RequestHeaders)>0 {
-		rh := map[string]any{}
-		// stable: include in sorted order by key
-		keys := make([]string,0,len(s.RequestHeaders))
-		for k := range s.RequestHeaders { keys = append(keys, strings.ToLower(k)) }
-		sort.Strings(keys)
-		for _, k := range keys {
-			v := s.RequestHeaders[k]
-			if v!="" { rh[k]=v }
+		if s.Policy.Fetch.CrossDomainRedirect != nil {
+			f["cross_domain_redirect"] = *s.Policy.Fetch.CrossDomainRedirect
 		}
-		if len(rh)>0 { p["request_headers"]=rh }
+		if len(s.Policy.Fetch.RequestHeaders) > 0 {
+			rh := map[string]any{}
+			// stable: include in sorted order by key
+			keys := make([]string, 0, len(s.Policy.Fetch.RequestHeaders))
+			for k := range s.Policy.Fetch.RequestHeaders {
+				keys = append(keys, strings.ToLower(k))
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				v := s.Policy.Fetch.RequestHeaders[k]
+				if v != "" {
+					rh[k] = v
+				}
+			}
+			if len(rh) > 0 {
+				f["request_headers"] = rh
+			}
+		}
+		p["policy"].(map[string]any)["fetch"] = f
 	}
-	return p,nil
+	return p, nil
 }
 
 func VerifySnapshotZip(zipBytes []byte) (string, string, error) {
@@ -279,31 +324,39 @@ func VerifySnapshotZip(zipBytes []byte) (string, string, error) {
 		}
 		switch f.Name {
 		case "policy_snapshot.json":
-			rc,_ := f.Open(); snapJSON,_ = io.ReadAll(rc); rc.Close()
+			rc, _ := f.Open()
+			snapJSON, _ = io.ReadAll(rc)
+			rc.Close()
 		case "policy_body.bin":
-			rc,_ := f.Open(); body,_ = io.ReadAll(rc); rc.Close()
+			rc, _ := f.Open()
+			body, _ = io.ReadAll(rc)
+			rc.Close()
 		}
 	}
-	if snapJSON==nil || body==nil {
-		return "INVALID","missing_required_files",nil
+	if snapJSON == nil || body == nil {
+		return "INVALID", "missing_required_files", nil
 	}
 	var snap PolicySnapshot
-	if err := json.Unmarshal(snapJSON,&snap); err!=nil {
-		return "INVALID","invalid_policy_snapshot_json",nil
+	if err := json.Unmarshal(snapJSON, &snap); err != nil {
+		return "INVALID", "invalid_policy_snapshot_json", nil
 	}
 	bodyHash := hashing.SHA256Hex(body)
-	if snap.Policy.Bytes.Hashes==nil || snap.Policy.Bytes.Hashes["sha2-256"]!=bodyHash {
-		return "INVALID","policy_body_hash_mismatch",nil
+	if snap.Policy.Bytes.Hashes == nil || snap.Policy.Bytes.Hashes["sha2-256"] != bodyHash {
+		return "INVALID", "policy_body_hash_mismatch", nil
 	}
 	payload, err := BuildSignPayload(snap)
-	if err!=nil { return "INVALID","cannot_build_sign_payload",nil }
-	signBytes, err := jcs.CanonicalizeValue(payload)
-	if err!=nil { return "INVALID","jcs_error",nil }
-	exp := hashing.SHA256Hex(signBytes)
-	if snap.SnapshotID!=exp {
-		return "INVALID","snapshot_id_mismatch",nil
+	if err != nil {
+		return "INVALID", "cannot_build_sign_payload", nil
 	}
-	return "VALID","",nil
+	signBytes, err := jcs.CanonicalizeValue(payload)
+	if err != nil {
+		return "INVALID", "jcs_error", nil
+	}
+	exp := hashing.SHA256Hex(signBytes)
+	if snap.SnapshotID != exp {
+		return "INVALID", "snapshot_id_mismatch", nil
+	}
+	return "VALID", "", nil
 }
 
 func ReadSnapshotInfo(zipBytes []byte) (*PolicySnapshot, string, error) {
@@ -316,57 +369,84 @@ func ReadSnapshotInfo(zipBytes []byte) (*PolicySnapshot, string, error) {
 	for _, f := range zr.File {
 		switch f.Name {
 		case "policy_snapshot.json":
-			rc,_ := f.Open(); snapJSON,_ = io.ReadAll(rc); rc.Close()
+			rc, _ := f.Open()
+			snapJSON, _ = io.ReadAll(rc)
+			rc.Close()
 		case "policy_body.bin":
-			rc,_ := f.Open(); body,_ = io.ReadAll(rc); rc.Close()
+			rc, _ := f.Open()
+			body, _ = io.ReadAll(rc)
+			rc.Close()
 		}
 	}
-	if snapJSON==nil || body==nil {
-		return nil,"",fmt.Errorf("missing required files")
+	if snapJSON == nil || body == nil {
+		return nil, "", fmt.Errorf("missing required files")
 	}
 	var snap PolicySnapshot
-	if err := json.Unmarshal(snapJSON,&snap); err!=nil { return nil,"",err }
+	if err := json.Unmarshal(snapJSON, &snap); err != nil {
+		return nil, "", err
+	}
 	return &snap, hashing.SHA256Hex(body), nil
 }
 
 func ShowSnapshot(zipPath string) (string, error) {
 	b, err := os.ReadFile(zipPath)
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	snap, bodyHash, err := ReadSnapshotInfo(b)
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb,"schema: %s\n", snap.Schema)
-	fmt.Fprintf(&sb,"created_at_utc: %s\n", snap.CreatedAtUTC)
-	fmt.Fprintf(&sb,"snapshot_id: %s\n", snap.SnapshotID)
-	fmt.Fprintf(&sb,"policy_sha256: %s\n", bodyHash)
-	if snap.Policy.Input.Mode=="file" { fmt.Fprintf(&sb,"input_file: %s\n", snap.Policy.Input.Path) }
-	if snap.Policy.Input.Mode=="url" { fmt.Fprintf(&sb,"input_url: %s\n", snap.Policy.Input.URL) }
+	fmt.Fprintf(&sb, "schema: %s\n", snap.Schema)
+	fmt.Fprintf(&sb, "created_at_utc: %s\n", snap.CreatedAtUTC)
+	fmt.Fprintf(&sb, "snapshot_id: %s\n", snap.SnapshotID)
+	fmt.Fprintf(&sb, "policy_sha256: %s\n", bodyHash)
+	if snap.Policy.Input.Mode == "file" {
+		fmt.Fprintf(&sb, "input_file: %s\n", snap.Policy.Input.Path)
+	}
+	if snap.Policy.Input.Mode == "url" {
+		fmt.Fprintf(&sb, "input_url: %s\n", snap.Policy.Input.URL)
+	}
 	return sb.String(), nil
 }
 
 func resolveIP(host string) (string, error) {
-	if host=="" { return "", nil }
+	if host == "" {
+		return "", nil
+	}
 	ips, err := net.LookupIP(host)
-	if err!=nil || len(ips)==0 { return "", err }
+	if err != nil || len(ips) == 0 {
+		return "", err
+	}
 	for _, ip := range ips {
-		if ip.To4()!=nil { return ip.String(), nil }
+		if ip.To4() != nil {
+			return ip.String(), nil
+		}
 	}
 	return ips[0].String(), nil
 }
 
 func parseHost(u string) string {
 	pu, err := url.Parse(u)
-	if err!=nil { return "" }
+	if err != nil {
+		return ""
+	}
 	return pu.Hostname()
 }
 
 func tlsVersionString(v uint16) string {
 	switch v {
-	case tls.VersionTLS10: return "TLS1.0"
-	case tls.VersionTLS11: return "TLS1.1"
-	case tls.VersionTLS12: return "TLS1.2"
-	case tls.VersionTLS13: return "TLS1.3"
-	default: return fmt.Sprintf("0x%x", v)
+	case tls.VersionTLS10:
+		return "TLS1.0"
+	case tls.VersionTLS11:
+		return "TLS1.1"
+	case tls.VersionTLS12:
+		return "TLS1.2"
+	case tls.VersionTLS13:
+		return "TLS1.3"
+	default:
+		return fmt.Sprintf("0x%x", v)
 	}
 }
 
@@ -377,7 +457,11 @@ func sha256Hex(b []byte) string {
 
 func subjectCNSAN(cert *x509.Certificate) string {
 	parts := []string{}
-	if cert.Subject.CommonName!="" { parts = append(parts,"CN="+cert.Subject.CommonName) }
-	if len(cert.DNSNames)>0 { parts = append(parts,"SAN="+strings.Join(cert.DNSNames,",")) }
-	return strings.Join(parts,";")
+	if cert.Subject.CommonName != "" {
+		parts = append(parts, "CN="+cert.Subject.CommonName)
+	}
+	if len(cert.DNSNames) > 0 {
+		parts = append(parts, "SAN="+strings.Join(cert.DNSNames, ","))
+	}
+	return strings.Join(parts, ";")
 }

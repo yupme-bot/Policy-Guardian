@@ -9,9 +9,8 @@ import (
 
 	"policyguardian/internal/consentguardian"
 	"policyguardian/internal/policylock"
+	"policyguardian/internal/shared/version"
 )
-
-const Version = "v0.1.0"
 
 func Run(argv []string) int {
 	if len(argv) == 0 {
@@ -19,7 +18,7 @@ func Run(argv []string) int {
 		return 4
 	}
 	if argv[0] == "--version" || argv[0] == "version" {
-		fmt.Println("policyguardian " + Version)
+		fmt.Println("policyguardian " + version.Version)
 		return 0
 	}
 	switch argv[0] {
@@ -76,7 +75,12 @@ func cmdPolicySnapshot(argv []string) int {
 	if err := fs.Parse(argv); err != nil {
 		return 4
 	}
-	opts := policylock.SnapshotOptions{CreatedAtUTC: createdAt, UserAgent: "policyguardian/"+Version+" (PolicyLock)", MaxBytes: maxBytes}
+	opts := policylock.SnapshotOptions{
+		CreatedAtUTC: createdAt,
+		ToolVersion:  version.ToolVersion,
+		UserAgent:    version.ToolVersion + " (PolicyLock)",
+		MaxBytes:     maxBytes,
+	}
 
 	var zipBytes []byte
 	var snap *policylock.PolicySnapshot
@@ -111,7 +115,9 @@ func cmdPolicySnapshot(argv []string) int {
 	}
 	// Save into store
 	store := os.Getenv("POLICYGUARDIAN_STORE")
-	if store == "" { store = ".policyguardian_store" }
+	if store == "" {
+		store = ".policyguardian_store"
+	}
 	_ = os.MkdirAll(filepath.Join(store, "snapshots"), 0755)
 	_ = os.WriteFile(filepath.Join(store, "snapshots", snap.SnapshotID+".zip"), zipBytes, 0644)
 
@@ -137,8 +143,12 @@ func cmdPolicyVerify(argv []string) int {
 		return 4
 	}
 	fmt.Println(status)
-	if reason != "" { fmt.Println("reason:", reason) }
-	if status != "VALID" { return 2 }
+	if reason != "" {
+		fmt.Println("reason:", reason)
+	}
+	if status != "VALID" {
+		return 2
+	}
 
 	// Helpful, deterministic context for humans.
 	// This explains why two URL snapshots might legitimately differ:
@@ -168,10 +178,10 @@ func cmdPolicyVerify(argv []string) int {
 			if snap.Policy.Fetch.ResolvedIP != "" {
 				fmt.Println("resolved_ip:", snap.Policy.Fetch.ResolvedIP)
 			}
-			if snap.Policy.Fetch.RedirectCount != 0 {
-				fmt.Println("redirect_count:", snap.Policy.Fetch.RedirectCount)
+			if snap.Policy.Fetch.RedirectCount != nil && *snap.Policy.Fetch.RedirectCount != 0 {
+				fmt.Println("redirect_count:", *snap.Policy.Fetch.RedirectCount)
 			}
-			if snap.Policy.Fetch.CrossDomainRedirect {
+			if snap.Policy.Fetch.CrossDomainRedirect != nil && *snap.Policy.Fetch.CrossDomainRedirect {
 				fmt.Println("cross_domain_redirect:", "true")
 			}
 			fmt.Println("note:", "If two URL snapshots differ, compare policy_sha256. If it differs, the remote bytes changed between fetches.")
@@ -224,7 +234,9 @@ func cmdConsentRecord(argv []string) int {
 	fs.StringVar(&tenantSalt, "tenant-salt", "", "Tenant salt hex")
 	fs.StringVar(&pepper, "pepper", "", "Pepper hex")
 	fs.StringVar(&signPriv, "sign-privkey", "", "Ed25519 private key hex")
-	if err := fs.Parse(argv); err != nil { return 4 }
+	if err := fs.Parse(argv); err != nil {
+		return 4
+	}
 	if fs.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "missing <snapshot.zip|snapshot_id>")
 		return 4
@@ -234,11 +246,11 @@ func cmdConsentRecord(argv []string) int {
 		return 4
 	}
 	_, _, _, err := consentguardian.RecordConsent(fs.Arg(0), outPath, consentguardian.RecordOptions{
-		CreatedAtUTC: createdAt,
+		CreatedAtUTC:      createdAt,
 		SubjectIdentifier: subject,
-		TenantSaltHex: tenantSalt,
-		PepperHex: pepper,
-		SignPrivKeyHex: signPriv,
+		TenantSaltHex:     tenantSalt,
+		PepperHex:         pepper,
+		SignPrivKeyHex:    signPriv,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "INPUT ERROR:", err)
@@ -253,19 +265,30 @@ func cmdConsentVerify(argv []string) int {
 	fs := flag.NewFlagSet("consent verify", flag.ContinueOnError)
 	var resolveSnap bool
 	fs.BoolVar(&resolveSnap, "resolve-snapshot", false, "Resolve snapshot from local store")
-	if err := fs.Parse(argv); err != nil { return 4 }
+	if err := fs.Parse(argv); err != nil {
+		return 4
+	}
 	if fs.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "missing <consent.json>")
 		return 4
 	}
 	status, reason, unsigned, err := consentguardian.VerifyConsentFile(fs.Arg(0), resolveSnap)
-	if err != nil { fmt.Fprintln(os.Stderr, "INPUT ERROR:", err); return 4 }
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "INPUT ERROR:", err)
+		return 4
+	}
 	fmt.Println(status)
-	if reason != "" { fmt.Println("reason:", reason) }
+	if reason != "" {
+		fmt.Println("reason:", reason)
+	}
 	if unsigned {
 		fmt.Fprintln(os.Stderr, "WARNING: unsigned_consent")
 	}
-	if status == "INVALID" { return 2 }
-	if status == "PARTIAL" { return 1 }
+	if status == "INVALID" {
+		return 2
+	}
+	if status == "PARTIAL" {
+		return 1
+	}
 	return 0
 }
