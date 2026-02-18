@@ -1,5 +1,8 @@
 # Policy Guardian v1.0
 
+Policy Guardian creates verifiable evidence of policy history and user consent.
+It proves what policy text existed, when it existed, and which policy a user agreed to.
+
 Policy Guardian is a **Windows-first**, **deterministic** CLI monorepo that ships two tools:
 
 - **PolicyLock** — capture an exact policy snapshot (raw bytes) into a deterministic ZIP “snapshot pack”
