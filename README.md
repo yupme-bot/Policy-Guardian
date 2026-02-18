@@ -1,177 +1,300 @@
 # Policy Guardian v1.0
 
-Policy Guardian creates verifiable evidence of policy history and user consent.
-It proves what policy text existed, when it existed, and which policy a user agreed to.
+Policy Guardian creates cryptographically verifiable evidence of policy history and user consent.
 
-Policy Guardian is a Windows-first packaging, fully cross-platform Go implementation, **deterministic** CLI monorepo that ships two tools:
+It lets you prove:
 
-- **PolicyLock** — capture an exact policy snapshot (raw bytes) into a deterministic ZIP “snapshot pack”
-- **Consent Guardian** — record a consent event that binds a subject to a specific policy snapshot, with optional Ed25519 signing
+• what policy text existed  
+• when it was captured  
+• which policy version a user agreed to  
+• that records were never tampered with  
 
-This repo supports two build modes (same shared code, no drift):
+Windows-first packaging, fully cross-platform Go implementation.
 
-- **Mode A (default / preferred):** one binary with subcommands  
-  `policyguardian.exe policylock ...` and `policyguardian.exe consent ...`
-- **Mode B (optional wrappers):** two small wrapper binaries built from the same repo  
-  `policylock.exe` and `consentguardian.exe` (they call the same internal packages)
+---
 
-## Design goals
+## Overview
 
-- **Deterministic outputs** (same input → same bytes)
-- **RFC 8785 (JCS) canonical JSON** for all signing payloads (UTF‑8 bytes, no trailing newline)
-- **Raw bytes only** for PolicyLock snapshots (no parsing, no “canonicalization” of policy content)
-- **Deterministic ZIP writer** (STORE, fixed timestamps, sorted paths) with zip-slip protection
-- No UI. No CANON modes. No revocation model. No feature creep.
+Policy Guardian is a deterministic CLI monorepo that ships two tools.
 
-## Repo layout
+### PolicyLock
+Capture an exact policy snapshot (raw bytes) into a deterministic ZIP “snapshot pack”.
 
-```
-policyguardian/
-  cmd/
-    policyguardian/      (main CLI with subcommands)
-    policylock/          (wrapper binary)
-    consentguardian/     (wrapper binary)
+### Consent Guardian
+Record a consent event that binds a subject to a specific policy snapshot, with optional Ed25519 signing.
 
-  internal/
-    policylock/
-    consentguardian/
-    shared/
-      cliapp/
-      jcs/
-      hashing/
-      zipdet/
-      timefmt/
+Both tools share the same internal code and are built together.
 
-  schemas/
-  fixtures/
-    policylock/
-    consentguardian/
+---
 
-  tools/
-    ref_verify/
-    scripts/
-```
+## Build Modes
 
-## Quickstart (fresh unzip)
+Two build modes are supported (same shared code, no drift).
 
-Start here: `FRESH_UNZIP_QUICKSTART.md`
+**Mode A (default / preferred)**  
+One binary with subcommands:
 
-## Build (Windows / PowerShell)
+policyguardian.exe policylock ...  
+policyguardian.exe consent ...
 
-```powershell
+**Mode B (optional wrappers)**  
+Two small wrapper binaries:
+
+policylock.exe  
+consentguardian.exe  
+
+These call the same internal packages.
+
+---
+
+## Design Goals
+
+• Deterministic outputs (same input → same bytes)  
+• RFC 8785 (JCS) canonical JSON for signing payloads  
+• Raw bytes only for PolicyLock snapshots (no parsing or rewriting policy text)  
+• Deterministic ZIP writer (STORE, fixed timestamps, sorted paths)  
+• Zip-slip protection  
+• Offline verification  
+• No UI. No CANON modes. No revocation model. No feature creep.
+
+---
+
+## When to Use Policy Guardian
+
+Use Policy Guardian when a policy affects:
+
+• money (procurement, contracts)  
+• rights (privacy policies, terms of service)  
+• health (clinical protocols, safety rules)  
+• compliance (regulatory approvals)  
+
+Do not use it for drafts or informal notes.
+
+---
+
+## Example Use Case
+
+Before updating an Ontario procurement policy:
+
+1. Run PolicyLock snapshot.  
+2. Record approvals or consent with Consent Guardian.  
+3. Later, verify exactly which policy version was used.
+
+This provides verifiable evidence for audits, compliance, or disputes.
+
+---
+
+## Quickstart
+
+Start here: FRESH_UNZIP_QUICKSTART.md
+
+---
+
+## Building
+
+Windows / PowerShell:
+
 mkdir dist -ErrorAction SilentlyContinue
 
-go build -trimpath -buildvcs=false -o dist\policyguardian.exe .\cmd\policyguardian
-go build -trimpath -buildvcs=false -o dist\policylock.exe .\cmd\policylock
-go build -trimpath -buildvcs=false -o dist\consentguardian.exe .\cmd\consentguardian
+go build -trimpath -buildvcs=false -o dist\policyguardian.exe .\cmd\policyguardian  
+go build -trimpath -buildvcs=false -o dist\policylock.exe .\cmd\policylock  
+go build -trimpath -buildvcs=false -o dist\consentguardian.exe .\cmd\consentguardian  
 
-.\dist\policyguardian.exe --version
-```
+Builds on Windows, Linux, and macOS using Go 1.22+.
 
-### Important CLI rule (flags come first)
+---
 
-These CLIs use Go `flag`. **Flags must come before positional args.**
+## Outputs
 
-✅ Good:
-```powershell
-.\dist\policyguardian.exe policylock snapshot --out out\snap.zip fixtures\policylock\policy1.txt
-```
+PolicyLock creates:
 
-❌ Bad:
-```powershell
-.\dist\policyguardian.exe policylock snapshot fixtures\policylock\policy1.txt --out out\snap.zip
-```
+• snapshot_pack.zip  
 
-## CLI overview
+Consent Guardian creates:
+
+• consent_event.json  
+
+These files are deterministic and verifiable offline.
+
+### What is inside `snapshot_pack.zip`?
+
+In simple terms, it contains:
+
+• the exact policy file bytes you captured  
+• metadata describing when and where it was captured  
+• hashes that prove the content hasn’t changed  
+• optional signature or timestamp anchors  
+
+It is a sealed evidence bundle you can store, send, or verify years later.
+
+---
+
+## Supported Formats
+
+### PolicyLock Input
+
+PolicyLock snapshots **any file or URL as raw bytes**.
+
+Common examples:
+
+• .pdf  
+• .docx  
+• .txt  
+• .html  
+• .md  
+• .json  
+• images (.png, .jpg)  
+• zipped policy bundles  
+
+There is **no parsing or rewriting**. The snapshot always captures exact bytes.
+
+URL snapshots are also supported (HTTP/HTTPS). Dynamic websites may produce different snapshots over time.
+
+---
+
+### Consent Guardian Input
+
+Consent Guardian records consent tied to a PolicyLock snapshot.
+
+Inputs:
+
+• PolicyLock snapshot ZIP  
+• Subject identifier (hashed with tenant salt + pepper)  
+• Optional Ed25519 private key for signing  
+
+Outputs:
+
+• consent_event.json (deterministic JSON evidence)
+
+---
+
+### Verification
+
+Both tools verify:
+
+• snapshot ZIPs  
+• consent_event.json files  
+
+Verification works offline and cross-platform.
+
+Reference verifier is included in tools/ref_verify/.
+
+---
+
+### Not Supported (v1.0)
+
+• Revocation tracking  
+• Policy diffing  
+• Database storage  
+• UI or dashboards  
+• Automatic policy parsing  
+
+These are intentionally out of scope for v1.0.
+
+---
+
+## CLI Overview
 
 ### PolicyLock
 
-- Snapshot (file):
-  ```powershell
-  .\dist\policyguardian.exe policylock snapshot --out policy_snapshot.zip fixtures\policylock\policy1.txt
-  ```
+Snapshot (file):
 
-- Verify:
-  ```powershell
-  .\dist\policyguardian.exe policylock verify policy_snapshot.zip
-  ```
+policyguardian.exe policylock snapshot --out policy_snapshot.zip fixtures\policylock\policy1.txt
 
-  For URL snapshots, `verify` prints a `policy_sha256` line. If two URL snapshots differ, compare `policy_sha256`:
+Verify:
 
-  - If `policy_sha256` differs, the remote bytes changed between fetches (common on dynamic websites).
-  - If `policy_sha256` matches and you also pinned `--created-at`, the snapshot ZIP should be byte-identical.
+policyguardian.exe policylock verify policy_snapshot.zip
 
-- Show:
-  ```powershell
-  .\dist\policyguardian.exe policylock show policy_snapshot.zip
-  ```
+Show:
+
+policyguardian.exe policylock show policy_snapshot.zip
+
+---
 
 ### Consent Guardian
 
-- Record (unsigned):
-  ```powershell
-  .\dist\policyguardian.exe consent record --subject "Alice Example" --tenant-salt 0011 --pepper aabb --out consent.json demo_snapshot.zip
-  ```
+Record (unsigned):
 
-- Record (signed, Ed25519):
-  ```powershell
-  .\dist\policyguardian.exe consent record --subject "Alice Example" --tenant-salt 0011 --pepper aabb --sign-privkey <64-byte-privkey-hex> --out consent_signed.json demo_snapshot.zip
-  ```
+policyguardian.exe consent record --subject "Alice Example" --tenant-salt 0011 --pepper aabb --out consent.json demo_snapshot.zip
 
-- Verify:
-  ```powershell
-  .\dist\policyguardian.exe consent verify consent.json
-  ```
+Record (signed, Ed25519):
 
-- Verify + resolve snapshot:
-  ```powershell
-  .\dist\policyguardian.exe consent verify --resolve-snapshot consent.json
-  ```
+policyguardian.exe consent record --subject "Alice Example" --tenant-salt 0011 --pepper aabb --sign-privkey <64-byte-privkey-hex> --out consent_signed.json demo_snapshot.zip
 
-## Exit codes
+Verify:
 
-- `0` — VALID
-- `1` — PARTIAL
-- `2` — INVALID
-- `3` — UNSUPPORTED
-- `4` — INPUT ERROR
-- `5` — NETWORK ERROR
+policyguardian.exe consent verify consent.json
 
-## Schemas, fixtures, verifier, demo
+Verify + resolve snapshot:
 
-- Schemas: `schemas/`
-- Fixtures: `fixtures/`
-- Reference verifier: `tools/ref_verify/`
-- Demo scripts: `tools/scripts/`
+policyguardian.exe consent verify --resolve-snapshot consent.json
+
+---
+
+## Exit Codes
+
+0 — VALID  
+1 — PARTIAL (integrity OK but snapshot or anchors unavailable)  
+2 — INVALID  
+3 — UNSUPPORTED  
+4 — INPUT ERROR  
+5 — NETWORK ERROR
+
+---
+
+## Schemas, Fixtures, Verifier, Demo
+
+Schemas: schemas/  
+Fixtures: fixtures/  
+Reference verifier: tools/ref_verify/  
+Demo scripts: tools/scripts/  
 
 Run the demo:
 
-```powershell
-.\tools\scripts\demo.ps1
-```
+tools/scripts/demo.ps1  
 
-Full release checklist: `RELEASE_TESTS.md`
+Full release checklist: RELEASE_TESTS.md
 
-## Security & privacy
+---
 
-See `SECURITY.md`.
+## Security & Privacy
 
-## URL snapshots, determinism, and dynamic websites
+See SECURITY.md.
 
-PolicyLock snapshots URLs as **RAW bytes**. Many modern websites are dynamic (cookies, rotating IDs, injected banners), so two fetches can legitimately return different bytes.
+Policy Guardian stores no raw PII. Consent records use salted hashes and deterministic evidence formats.
+
+---
+
+## Notes on URL Snapshots
+
+PolicyLock snapshots URLs as raw bytes. Many modern websites are dynamic (cookies, rotating IDs, injected banners), so two snapshots may legitimately differ.
 
 When you verify a URL snapshot, PolicyLock prints:
 
-- `policy_sha256` — the SHA-256 of the captured policy bytes
-- URL fetch context (status, content type, final URL, etc.)
-- A note: if two URL snapshots differ, compare `policy_sha256` to confirm whether the remote bytes changed
+• policy_sha256 — SHA-256 of captured policy bytes  
+• URL fetch context (status, content type, final URL, retrieved time, etc.)
 
-**Tip:** Quickly compare the key fields:
+If two URL snapshots differ, compare policy_sha256.
 
-```powershell
-.\dist\policyguardian.exe policylock show <snapshot.zip> | Select-String "policy_sha256|retrieved_at_utc|final_url|content_type|http_status"
-```
+If you need byte-identical URL snapshots for testing, ensure the remote bytes are stable (PDFs usually are). If supported, pin time using --created-at.
 
-If you need byte-identical URL snapshots for testing, pin time using `--created-at` (it pins `retrieved_at_utc` for URL snapshots), and ensure the remote bytes are stable (PDFs usually are).
+---
 
-Note: the release ZIP includes an `out/` folder so you can run demos/tests immediately.
+## License
+
+See LICENSE file.
+
+---
+
+## Project Philosophy
+
+Policy Guardian is part of the Guardian tool family:
+
+• deterministic  
+• verifier-first  
+• local-first  
+• audit-ready  
+
+No dashboards. No SaaS. Just evidence you can verify.
+
+Note: the release ZIP includes an out/ folder so you can run demos/tests immediately.
