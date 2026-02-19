@@ -250,6 +250,14 @@ See `doc/SECURITY.md`.
 
 No raw PII stored. Consent uses salted hashes.
 
+## Commercial Licensing / Pilots
+
+If you're evaluating this project for commercial use, pilots, or enterprise licensing,
+please contact:
+
+Ben
+yupme112@gmail.com
+
 ---
 
 ## License
